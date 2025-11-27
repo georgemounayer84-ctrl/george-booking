@@ -1,50 +1,71 @@
-const db = require('./db');
+// backend/src/seed.js
+// ------------------------------------------------------
+// Seed-data för Supabase-databasen
+// Körs via Node (GitHub Actions eller manuellt i workflow)
+// ------------------------------------------------------
 
-async function seed(){
+const { supabase } = require('./db');
+
+async function seed() {
   try {
-    // Skapa demo-organisation
-    const org = await db.query(
-      "INSERT INTO organizations (name,orgnr) VALUES ('Demo Org','556677-8899') RETURNING id"
-    );
-    const orgId = org.rows[0].id;
+    console.log("Startar seed...");
 
-    // Skapa demo-grupp kopplad till organisationen
-    const g = await db.query(
-      "INSERT INTO groups (organization_id,name) VALUES ($1,$2) RETURNING id",
-      [orgId,'Demo Group']
-    );
-    const groupId = g.rows[0].id;
+    // -----------------------------------------
+    // 1. Skapa demo-restaurang
+    // -----------------------------------------
+    const restaurantPayload = {
+      id: "11111111-1111-1111-1111-111111111111", // fast ID för konsekvens
+      name: "Demo Bistro",
+      org_number: "123456-7890",
+      timezone: "Europe/Stockholm"
+    };
 
-    // Skapa demo-restaurang kopplad till gruppen
-    await db.query(
-      "INSERT INTO restaurants (group_id,name,timezone,max_capacity,slot_interval_minutes) VALUES ($1,$2,$3,$4,$5)",
-      [groupId,'Restaurang Demo','Europe/Stockholm',40,15]
-    );
+    const { data: restaurantData, error: restaurantErr } = await supabase
+      .from("restaurants")
+      .insert([restaurantPayload])
+      .select();
 
-    // Hämta restaurang-ID
-    const r = await db.query(
-      "SELECT id FROM restaurants WHERE name='Restaurang Demo' LIMIT 1"
-    );
-    const rid = r.rows[0].id;
-
-    // Skapa två sittningar (17:00 och 20:00) för måndag–fredag (0-4)
-    for(let d = 0; d < 5; d++){
-      await db.query(
-        "INSERT INTO sittings (restaurant_id,day_of_week,start_time,max_duration_minutes,clearing_buffer_minutes) VALUES ($1,$2,$3,$4,$5)",
-        [rid,d,'17:00',150,30]
-      );
-
-      await db.query(
-        "INSERT INTO sittings (restaurant_id,day_of_week,start_time,max_duration_minutes,clearing_buffer_minutes) VALUES ($1,$2,$3,$4,$5)",
-        [rid,d,'20:00',150,30]
-      );
+    if (restaurantErr) {
+      console.error("Fel vid skapande av restaurang:", restaurantErr);
+      // fortsätt även om den redan finns
+    } else {
+      console.log("Restaurang skapad:", restaurantData[0]);
     }
 
-    console.log('Seed klar');
+    // -----------------------------------------
+    // 2. Skapa en demo-sitting (18–20)
+    // -----------------------------------------
+    const start = new Date();
+    start.setHours(18, 0, 0, 0);
+    const end = new Date();
+    end.setHours(20, 0, 0, 0);
+
+    const sittingPayload = {
+      restaurant_id: restaurantPayload.id,
+      name: "Demo Sitting 18–20",
+      start_ts: start.toISOString(),
+      end_ts: end.toISOString()
+    };
+
+    const { data: sitData, error: sitErr } = await supabase
+      .from("sittings")
+      .insert([sittingPayload])
+      .select();
+
+    if (sitErr) {
+      console.error("Fel vid skapande av sitting:", sitErr);
+    } else {
+      console.log("Sitting skapad:", sitData[0]);
+    }
+
+    // -----------------------------------------
+    // KLART
+    // -----------------------------------------
+    console.log("Seed klar.");
     process.exit(0);
 
-  } catch(e){
-    console.error('seed error', e);
+  } catch (e) {
+    console.error("SEED ERROR:", e);
     process.exit(1);
   }
 }

@@ -18,7 +18,7 @@ jobs:
       - name: Install backend deps
         working-directory: backend
         run: |
-          npm ci --silent
+          npm install --silent
 
       - name: Run seed script
         working-directory: backend

@@ -1,14 +1,25 @@
-const { Pool } = require('pg');
-const dbUrl = process.env.DATABASE_URL;
+// ------------------------------------------------------
+// Supabase Database Client
+// ------------------------------------------------------
+const { createClient } = require('@supabase/supabase-js');
 
-if(!dbUrl) {
-  console.error("FATAL: DATABASE_URL saknas i miljövariabler");
+// Läs variabler från GitHub secrets
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error("FATAL: SUPABASE_URL eller SUPABASE_SERVICE_ROLE_KEY saknas");
   process.exit(1);
 }
 
-const pool = new Pool({ connectionString: dbUrl });
+// Skapa Supabase-klienten
+const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    persistSession: false
+  }
+});
 
+// Exportera som liknar tidigare query-interface
 module.exports = {
-  query: (text, params) => pool.query(text, params),
-  getClient: () => pool.connect()
+  supabase
 };

@@ -13,43 +13,69 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false }
 });
 
+const CORS_HEADERS = {
+  "content-type": "application/json",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "content-type,authorization",
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS"
+};
+
 serve(async (req) => {
+  // Hantera preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
   const url = new URL(req.url);
+  // stöd både "/" och "/bookings" så det fungerar lokalt/remote
+  const pathname = url.pathname.replace(/\/+$/,''); // ta bort trailing slash
   try {
-    // GET /bookings?restaurant_id=...
-    if (req.method === "GET" && url.pathname === "/bookings") {
+    // GET / eller GET /bookings?restaurant_id=...
+    if (req.method === "GET" && (pathname === "" || pathname === "/bookings" || pathname === "/")) {
       const restaurant_id = url.searchParams.get("restaurant_id");
-      let q = supabase.from('bookings').select('*').order('reserved_at');
+      let q = supabase.from('bookings').select('*').order('reserved_at', { ascending: true });
       if (restaurant_id) q = q.eq('restaurant_id', restaurant_id);
       const { data, error } = await q;
-      if (error) return new Response(JSON.stringify({ error }), { status: 500, headers: {"content-type":"application/json"} });
-      return new Response(JSON.stringify(data), { status: 200, headers: {"content-type":"application/json"} });
+      if (error) return new Response(JSON.stringify({ error: error.message || error }), { status: 500, headers: CORS_HEADERS });
+      return new Response(JSON.stringify({ data }), { status: 200, headers: CORS_HEADERS });
     }
 
-    // POST /bookings
-    if (req.method === "POST" && url.pathname === "/bookings") {
+    // POST / eller POST /bookings
+    if (req.method === "POST" && (pathname === "" || pathname === "/bookings" || pathname === "/")) {
       const payload = await req.json();
-      // minimal validation
-      if (!payload.restaurant_id || !payload.guest_name || !payload.covers || !payload.reserved_at) {
-        return new Response(JSON.stringify({ error: "restaurant_id, guest_name, covers, reserved_at krävs" }), { status: 400, headers: {"content-type":"application/json"} });
+
+      // Mappa vanliga widget-fält till vår databas-schema
+      // widget skickar t.ex. party_size, requested_start
+      const restaurant_id = payload.restaurant_id || payload.restaurant || null;
+      const guest_name = payload.guest_name || payload.name || null;
+      const guest_email = payload.guest_email || payload.email || null;
+      const guest_phone = payload.guest_phone || payload.phone || null;
+      const covers = payload.covers || payload.party_size || payload.covers_count || null;
+      const reserved_at = payload.reserved_at || payload.requested_start || payload.start || null;
+      const notes = payload.notes || payload.source || null;
+
+      if (!restaurant_id || !guest_name || !covers || !reserved_at) {
+        return new Response(JSON.stringify({ error: "restaurant_id, guest_name, covers, reserved_at krävs" }), { status: 400, headers: CORS_HEADERS });
       }
+
       const { data, error } = await supabase.from('bookings').insert([{
-        restaurant_id: payload.restaurant_id,
+        restaurant_id,
         sitting_id: payload.sitting_id || null,
-        guest_name: payload.guest_name,
-        guest_email: payload.guest_email || null,
-        guest_phone: payload.guest_phone || null,
-        covers: payload.covers,
-        reserved_at: payload.reserved_at,
-        notes: payload.notes || null,
+        guest_name,
+        guest_email,
+        guest_phone,
+        covers,
+        reserved_at,
+        notes,
         status: 'booked'
       }]).select();
-      if (error) return new Response(JSON.stringify({ error }), { status: 400, headers: {"content-type":"application/json"} });
-      return new Response(JSON.stringify(data[0]), { status: 201, headers: {"content-type":"application/json"} });
+
+      if (error) return new Response(JSON.stringify({ error: error.message || error }), { status: 400, headers: CORS_HEADERS });
+      return new Response(JSON.stringify({ booking: data[0] }), { status: 201, headers: CORS_HEADERS });
     }
 
-    return new Response("Not found", { status: 404 });
+    return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: CORS_HEADERS });
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: {"content-type":"application/json"} });
+    return new Response(JSON.stringify({ error: err.message || String(err) }), { status: 500, headers: CORS_HEADERS });
   }
 });

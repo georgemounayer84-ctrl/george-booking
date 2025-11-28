@@ -21,16 +21,16 @@ const CORS_HEADERS = {
 };
 
 serve(async (req) => {
-  // Hantera preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
 
   const url = new URL(req.url);
-  // stöd både "/" och "/bookings" så det fungerar lokalt/remote
-  const pathname = url.pathname.replace(/\/+$/,''); // ta bort trailing slash
+  const pathname = url.pathname.replace(/\/+$/,''); // normalize
+  const action = url.searchParams.get('action') || null;
+
   try {
-    // GET / eller GET /bookings?restaurant_id=...
+    // GET /bookings
     if (req.method === "GET" && (pathname === "" || pathname === "/bookings" || pathname === "/")) {
       const restaurant_id = url.searchParams.get("restaurant_id");
       let q = supabase.from('bookings').select('*').order('reserved_at', { ascending: true });
@@ -40,12 +40,29 @@ serve(async (req) => {
       return new Response(JSON.stringify({ data }), { status: 200, headers: CORS_HEADERS });
     }
 
-    // POST / eller POST /bookings
+    // POST with actions (cancel/delete) or create
     if (req.method === "POST" && (pathname === "" || pathname === "/bookings" || pathname === "/")) {
       const payload = await req.json();
 
-      // Mappa vanliga widget-fält till vår databas-schema
-      // widget skickar t.ex. party_size, requested_start
+      // --- ADMIN ACTIONS ---
+      if (action === "cancel") {
+        const id = payload.id;
+        if (!id) return new Response(JSON.stringify({ error: "id krävs" }), { status: 400, headers: CORS_HEADERS });
+        const { data, error } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id).select();
+        if (error) return new Response(JSON.stringify({ error: error.message || error }), { status: 400, headers: CORS_HEADERS });
+        return new Response(JSON.stringify({ booking: data[0] }), { status: 200, headers: CORS_HEADERS });
+      }
+
+      if (action === "delete") {
+        const id = payload.id;
+        if (!id) return new Response(JSON.stringify({ error: "id krävs" }), { status: 400, headers: CORS_HEADERS });
+        const { error } = await supabase.from('bookings').delete().eq('id', id);
+        if (error) return new Response(JSON.stringify({ error: error.message || error }), { status: 400, headers: CORS_HEADERS });
+        return new Response(null, { status: 204, headers: CORS_HEADERS });
+      }
+
+      // --- CREATE BOOKING (widget / UI) ---
+      // Map common widget fields to DB schema
       const restaurant_id = payload.restaurant_id || payload.restaurant || null;
       const guest_name = payload.guest_name || payload.name || null;
       const guest_email = payload.guest_email || payload.email || null;

@@ -1,48 +1,34 @@
-<!-- widget/widget.html -->
-<div id="gb-widget">
-  <h3>Boka bord</h3>
-  <label>Datum: <input type="date" id="gb-date" /></label>
-  <label>Antal:
-    <select id="gb-party">
-      <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
-    </select>
-  </label>
-  <button id="gb-check">Sök tider</button>
-  <div id="gb-slots"></div>
-  <div id="gb-form" style="display:none">
-    <input id="gb-name" placeholder="Namn" /><br/>
-    <input id="gb-email" placeholder="E-post" /><br/>
-    <input id="gb-phone" placeholder="Telefon" /><br/>
-    <button id="gb-book">Boka</button>
-  </div>
-  <div id="gb-msg"></div>
-</div>
-
 <script>
-  const API_BASE = "<BYT_UT_MOT_ER_API_URL>"; // ex https://.../api/v1
-  const RESTAURANT_ID = 1; // byt per restaurang
+  const API_BASE = "https://jnxmxhnzxfwgiwxziwbp.functions.supabase.co"; 
+  const RESTAURANT_ID = "11111111-1111-1111-1111-111111111111"; // din restaurang UUID
 
   document.getElementById('gb-check').onclick = async () => {
     const date = document.getElementById('gb-date').value;
     const party = document.getElementById('gb-party').value;
     if(!date) return alert('Välj datum');
-    const res = await fetch(`${API_BASE}/restaurants/${RESTAURANT_ID}/availability?date=${date}&party_size=${party}`);
-    const data = await res.json();
+
+    // Anropar /bookings och filtrerar på restaurant_id + datum (enklare klient-side filter)
+    const res = await fetch(`${API_BASE}/bookings?restaurant_id=${RESTAURANT_ID}`);
+    const j = await res.json();
     const slotsDiv = document.getElementById('gb-slots');
     slotsDiv.innerHTML = '';
-    if(!data.slots || data.slots.length===0){ slotsDiv.innerText='Inga tider'; return; }
-    data.slots.forEach(s => {
-      if(s.available){
-        const btn = document.createElement('button');
-        const t = new Date(s.start).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-        btn.innerText = t + ' — boka';
-        btn.onclick = () => {
-          document.getElementById('gb-form').style.display='block';
-          document.getElementById('gb-form').dataset.start = s.start;
-          document.getElementById('gb-form').dataset.end = s.end;
-        };
-        slotsDiv.appendChild(btn);
-      }
+
+    const bookings = j.data || [];
+    // Här skapar vi demo-slots baserat på tider (förenklat): visa timmar 18:00–21:00 och markera ledigt om ingen bokning på samma tid
+    const baseDate = new Date(date);
+    const times = [18,19,20];
+    times.forEach(hour => {
+      const start = new Date(Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth(), baseDate.getUTCDate(), hour, 0, 0)).toISOString();
+      const occupied = bookings.some(b => b.reserved_at && b.reserved_at.startsWith(start.slice(0,13)));
+      const btn = document.createElement('button');
+      const t = new Date(start).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      btn.innerText = occupied ? `${t} — fullt` : `${t} — boka`;
+      btn.disabled = occupied;
+      btn.onclick = () => {
+        document.getElementById('gb-form').style.display='block';
+        document.getElementById('gb-form').dataset.start = start;
+      };
+      slotsDiv.appendChild(btn);
     });
   };
 
@@ -50,17 +36,30 @@
     const name = document.getElementById('gb-name').value;
     const email = document.getElementById('gb-email').value;
     const phone = document.getElementById('gb-phone').value;
-    const party = document.getElementById('gb-party').value;
+    const party = parseInt(document.getElementById('gb-party').value,10);
     const start = document.getElementById('gb-form').dataset.start;
-    const end = document.getElementById('gb-form').dataset.end;
-    const payload = { guest_name:name, guest_email:email, guest_phone:phone, party_size:parseInt(party), requested_start:start, requested_end:end, source:'widget' };
-    const resp = await fetch(`${API_BASE}/restaurants/${RESTAURANT_ID}/bookings`, {
+
+    const payload = {
+      restaurant_id: RESTAURANT_ID,
+      guest_name: name,
+      guest_email: email,
+      guest_phone: phone,
+      covers: party,
+      reserved_at: start,
+      source: 'widget'
+    };
+
+    const resp = await fetch(`${API_BASE}/bookings`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify(payload)
     });
     const j = await resp.json();
-    if(resp.status===201){ document.getElementById('gb-msg').innerText = 'Bokning bekräftad!'; document.getElementById('gb-form').style.display='none'; }
-    else { document.getElementById('gb-msg').innerText = 'Fel: '+(j.message||JSON.stringify(j)); }
+    if(resp.status===201){ 
+      document.getElementById('gb-msg').innerText = 'Bokning bekräftad!'; 
+      document.getElementById('gb-form').style.display='none'; 
+    } else { 
+      document.getElementById('gb-msg').innerText = 'Fel: '+(j.error||JSON.stringify(j)); 
+    }
   };
 </script>

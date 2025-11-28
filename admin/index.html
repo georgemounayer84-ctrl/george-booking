@@ -116,9 +116,9 @@ function renderBookings(bookings) {
         <td>${escapeHtml(String(b.covers || ""))}</td>
         <td>${reserved}</td>
         <td>${escapeHtml(b.status || "")}</td>
-        <td>
+        <td>         
           <button onclick="cancelBooking('${b.id}')" ${b.status === 'cancelled' ? 'disabled' : ''}>Cancel</button>
-          <button onclick="deleteBooking('${b.id}')">Delete</button>
+          <button onclick="editBooking('${b.id}')">Ändra</button>
         </td>
       `;
       list.appendChild(tr);
@@ -158,45 +158,70 @@ function escapeHtml(s) {
     .replaceAll('"',"&quot;");
 }
 
+
+// Admin: Cancel (med bättre debug)
 async function cancelBooking(id) {
   if (!confirm("Bekräfta: markera bokning som avbokad?")) return;
   setStatusMessage("Avbokar...");
+  console.log("Cancel - payload:", { action: "cancel", booking_id: id });
+
   try {
     const res = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "cancel", booking_id: id })
     });
+
+    const text = await res.text(); // läs alltid råtext för debugging
+    let parsed;
+    try { parsed = JSON.parse(text); } catch(e) { parsed = text; }
+
+    console.log("Cancel - response status:", res.status, "body:", parsed);
+
     if (!res.ok) {
-      const err = await res.json().catch(()=>({error:"okänt fel"}));
-      setStatusMessage("Fel: " + (err.error || JSON.stringify(err)), true);
+      setStatusMessage("Fel: " + (parsed.error || text || "okänt fel"), true);
       return;
     }
+    setStatusMessage("Avbokad.");
     await loadBookings();
   } catch (e) {
+    console.error("Cancel - nätverksfel", e);
     setStatusMessage("Nätverksfel: " + String(e), true);
   }
 }
 
+// Admin: Delete (Ändra/EDIT kommer vi lägga till efter detta)
 async function deleteBooking(id) {
   if (!confirm("Bekräfta: radera bokningen permanent?")) return;
   setStatusMessage("Raderar...");
+  console.log("Delete - payload:", { action: "delete", booking_id: id });
+
   try {
     const res = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "delete", booking_id: id })
     });
+
+    const text = await res.text();
+    let parsed;
+    try { parsed = JSON.parse(text); } catch(e) { parsed = text; }
+
+    console.log("Delete - response status:", res.status, "body:", parsed);
+
     if (!res.ok) {
-      const err = await res.json().catch(()=>({error:"okänt fel"}));
-      setStatusMessage("Fel: " + (err.error || JSON.stringify(err)), true);
+      setStatusMessage("Fel: " + (parsed.error || text || "okänt fel"), true);
       return;
     }
+    setStatusMessage("Raderad.");
     await loadBookings();
   } catch (e) {
+    console.error("Delete - nätverksfel", e);
     setStatusMessage("Nätverksfel: " + String(e), true);
   }
 }
+  
+  
 
 document.addEventListener("DOMContentLoaded", () => {
   if (!document.getElementById("status-msg")) {

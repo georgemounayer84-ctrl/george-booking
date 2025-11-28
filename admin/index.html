@@ -14,13 +14,14 @@
   </style>
 </head>
 <body>
+
   <h1>George Booking — Admin</h1>
   <p class="muted">Visar bokningar för restaurang (redigera RESTAURANT_ID nedan vid behov).</p>
   <div>
     <label>Restaurant UUID: <input id="restaurant_id" placeholder="Lämna tomt för alla restauranger (admin) eller ange restaurant_id för filter">
-<button id="load-btn"></button>
+<button id="load-btn" onclick="loadBookings()">Ladda></button>
 </label>
-    <button id="refresh">Ladda</button>
+     
   </div>
   <div id="msg" style="margin-top:10px"></div>
   <table id="tbl" style="margin-top:12px">

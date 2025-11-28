@@ -15,14 +15,34 @@
 </head>
 <body>
 
-  <h1>George Booking — Admin</h1>
-  <p class="muted">Visar bokningar för restaurang (redigera RESTAURANT_ID nedan vid behov).</p>
-  <div>
-    <label>Restaurant UUID: <input id="restaurant_id" placeholder="Lämna tomt för alla restauranger (admin) eller ange restaurant_id för filter">
-<button id="load-btn" onclick="loadBookings()">Ladda></button>
-</label>
-     
+
+
+<div>
+  <label>
+    Restaurant UUID:
+    <input id="restaurant_id" placeholder="Lämna tomt för alla restauranger (admin) eller ange restaurant_id för filter">
+  </label>
+  <button id="load-btn" onclick="loadBookings()">Ladda</button>
+</div>
+
+<!-- Tabell för bokningar — låt scriptet fylla tbody -->
+<table style="width:100%; border-collapse: collapse; margin-top: 12px;" border="1">
+  <thead>
+    <tr>
+      <th>Reservation</th>
+      <th>Guest</th>
+      <th>Covers</th>
+      <th>Reserved at (UTC)</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody id="booking-list">
+    <!-- rows inserted här av script -->
+  </tbody>
+</table>   
   </div>
+  
   <div id="msg" style="margin-top:10px"></div>
   <table id="tbl" style="margin-top:12px">
     <thead><tr><th>Reservation</th><th>Guest</th><th>Covers</th><th>Reserved at (UTC)</th><th>Status</th><th>Actions</th></tr></thead>
@@ -39,7 +59,6 @@ function setStatusMessage(msg, isError=false) {
   el.style.color = isError ? "crimson" : "green";
 }
 
-// Hämta bokningar (valfritt filter via restaurant_id)
 async function loadBookings() {
   setStatusMessage("Laddar...");
   const restaurantId = document.getElementById("restaurant_id").value.trim();
@@ -67,30 +86,63 @@ async function loadBookings() {
 
 function renderBookings(bookings) {
   const list = document.getElementById("booking-list");
-  list.innerHTML = "";
+  // Om elementet saknas — skapa ett under tabellen eller i body
+  if (!list) {
+    const container = document.createElement("div");
+    container.id = "booking-list";
+    document.body.appendChild(container);
+    return renderBookings(bookings); // kalla om med nytt element
+  }
 
+  // Om booking-list är en <tbody>, rendera som tabellrader
+  if (list.tagName.toLowerCase() === "tbody") {
+    list.innerHTML = "";
+    if (!bookings || bookings.length === 0) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 6;
+      td.textContent = "Inga bokningar hittades.";
+      tr.appendChild(td);
+      list.appendChild(tr);
+      return;
+    }
+    bookings.forEach(b => {
+      const tr = document.createElement("tr");
+      const reserved = b.reserved_at ? new Date(b.reserved_at).toLocaleString() : "—";
+
+      tr.innerHTML = `
+        <td><strong>${escapeHtml(b.guest_name || "Namn saknas")}</strong><br><small>${escapeHtml(b.notes||"")}</small></td>
+        <td>${escapeHtml(b.guest_email||"")}${b.guest_phone ? "<br>"+escapeHtml(b.guest_phone) : ""}</td>
+        <td>${escapeHtml(String(b.covers || ""))}</td>
+        <td>${reserved}</td>
+        <td>${escapeHtml(b.status || "")}</td>
+        <td>
+          <button onclick="cancelBooking('${b.id}')" ${b.status === 'cancelled' ? 'disabled' : ''}>Cancel</button>
+          <button onclick="deleteBooking('${b.id}')">Delete</button>
+        </td>
+      `;
+      list.appendChild(tr);
+    });
+    return;
+  }
+
+  // Annars: rendera som vanliga divs (fallback)
+  list.innerHTML = "";
   if (!bookings || bookings.length === 0) {
     list.innerHTML = "<p>Inga bokningar hittades.</p>";
     return;
   }
-
   bookings.forEach(b => {
     const div = document.createElement("div");
-    div.className = "booking-item";
     const reserved = b.reserved_at ? new Date(b.reserved_at).toLocaleString() : "—";
+    div.className = "booking-item";
     div.innerHTML = `
-      <div style="display:flex;gap:16px;align-items:flex-start;">
-        <div style="flex:1">
-          <strong>${escapeHtml(b.guest_name || "Namn saknas")}</strong><br>
-          <small>${b.guest_email || ""} ${b.guest_phone ? "· "+b.guest_phone : ""}</small><br>
-          <span>${reserved}</span><br>
-          Status: <b>${b.status || "—"}</b>
-        </div>
-        <div style="min-width:160px">
-          <button onclick="cancelBooking('${b.id}')" ${b.status === 'cancelled' ? 'disabled' : ''}>Cancel</button>
-          <button onclick="deleteBooking('${b.id}')">Delete</button>
-        </div>
-      </div>
+      <strong>${escapeHtml(b.guest_name || "Namn saknas")}</strong><br>
+      <small>${escapeHtml(b.guest_email||"")} ${b.guest_phone ? "· "+escapeHtml(b.guest_phone) : ""}</small><br>
+      ${reserved}<br>
+      Status: <b>${b.status || "—"}</b><br>
+      <button onclick="cancelBooking('${b.id}')" ${b.status === 'cancelled' ? 'disabled' : ''}>Cancel</button>
+      <button onclick="deleteBooking('${b.id}')">Delete</button>
       <hr>
     `;
     list.appendChild(div);
@@ -106,7 +158,6 @@ function escapeHtml(s) {
     .replaceAll('"',"&quot;");
 }
 
-// Admin: Cancel
 async function cancelBooking(id) {
   if (!confirm("Bekräfta: markera bokning som avbokad?")) return;
   setStatusMessage("Avbokar...");
@@ -127,7 +178,6 @@ async function cancelBooking(id) {
   }
 }
 
-// Admin: Delete
 async function deleteBooking(id) {
   if (!confirm("Bekräfta: radera bokningen permanent?")) return;
   setStatusMessage("Raderar...");
@@ -148,18 +198,20 @@ async function deleteBooking(id) {
   }
 }
 
-// Ladda initialt (alla bokningar)
 document.addEventListener("DOMContentLoaded", () => {
-  // skapa status-element om det saknas
   if (!document.getElementById("status-msg")) {
     const el = document.createElement("div");
     el.id = "status-msg";
     el.style.margin = "8px 0";
-    document.body.insertBefore(el, document.getElementById("booking-list"));
+    // placera innan tabellen om möjligt
+    const table = document.querySelector("table");
+    if (table && table.parentNode) table.parentNode.insertBefore(el, table);
+    else document.body.insertBefore(el, document.body.firstChild);
   }
   loadBookings();
 });
 </script>
+
 
 
 </body>

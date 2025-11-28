@@ -59,8 +59,8 @@ const COMMON_HEADERS = {
   "apikey": SUPABASE_ANON_KEY
 };
 
-function setStatusMessage(msg, isError=false) {
-  const el = document.getElementById("status-msg");
+function setStatusMessage(msg, isError) {
+  var el = document.getElementById("status-msg");
   if (!el) return;
   el.textContent = msg;
   el.style.color = isError ? "crimson" : "green";
@@ -69,50 +69,51 @@ function setStatusMessage(msg, isError=false) {
 function escapeHtml(s) {
   if (!s) return "";
   return String(s)
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;");
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;");
 }
 
 async function loadBookings() {
   setStatusMessage("Laddar...");
-  const restaurantId = document.getElementById("restaurant_id").value.trim();
-  const url = restaurantId ? `${API_URL}?restaurant_id=${encodeURIComponent(restaurantId)}` : API_URL;
+  var restaurantId = document.getElementById("restaurant_id").value.trim();
+  var url = restaurantId ? API_URL + "?restaurant_id=" + encodeURIComponent(restaurantId) : API_URL;
 
   try {
-    const res = await fetch(url, { headers: COMMON_HEADERS });
-    const text = await res.text();
-    let json;
+    var res = await fetch(url, { headers: COMMON_HEADERS });
+    var text = await res.text();
+    var json;
     try { json = JSON.parse(text); } catch(e) { json = { error:text }; }
 
     if (!res.ok) {
-      setStatusMessage("Fel: " + (json.error || text));
+      setStatusMessage("Fel: " + (json.error || text), true);
       return;
     }
+
     renderBookings(json.data || []);
-    setStatusMessage(`Visar ${json.data.length} bokning(ar).`);
+    setStatusMessage("Visar " + (json.data || []).length + " bokning(ar).");
   } catch (e) {
     setStatusMessage("Nätverksfel: " + e, true);
   }
 }
 
 function renderBookings(bookings) {
-  const list = document.getElementById("booking-list");
+  var list = document.getElementById("booking-list");
   list.innerHTML = "";
 
   if (!bookings.length) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="6">Inga bokningar.</td>`;
+    var tr = document.createElement("tr");
+    tr.innerHTML = "<td colspan='6'>Inga bokningar.</td>";
     list.appendChild(tr);
     return;
   }
 
-  bookings.forEach(b => {
-    const reserved = b.reserved_at ? new Date(b.reserved_at).toLocaleString() : "";
-    const tr = document.createElement("tr");
+  bookings.forEach(function(b) {
+    var reserved = b.reserved_at ? new Date(b.reserved_at).toLocaleString() : "";
+    var tr = document.createElement("tr");
     tr.innerHTML = `
-      <td><strong>${escapeHtml(b.guest_name||"")}</strong><br><small>${escapeHtml(b.notes||"")}</small></td>
+      <td><strong>${escapeHtml(b.guest_name || "")}</strong><br><small>${escapeHtml(b.notes||"")}</small></td>
       <td>${escapeHtml(b.guest_email||"")}<br>${escapeHtml(b.guest_phone||"")}</td>
       <td>${escapeHtml(b.covers||"")}</td>
       <td>${reserved}</td>
@@ -129,13 +130,13 @@ function renderBookings(bookings) {
 
 async function cancelBooking(id) {
   try {
-    const res = await fetch(API_URL, {
+    var res = await fetch(API_URL, {
       method: "POST",
       headers: COMMON_HEADERS,
       body: JSON.stringify({ action:"cancel", booking_id:id })
     });
-    const text = await res.text();
-    let json;
+    var text = await res.text();
+    var json;
     try { json = JSON.parse(text); } catch(e) { json={error:text}; }
 
     if (!res.ok) return setStatusMessage("Fel: "+json.error,true);
@@ -147,13 +148,13 @@ async function cancelBooking(id) {
 
 async function deleteBooking(id) {
   try {
-    const res = await fetch(API_URL, {
+    var res = await fetch(API_URL, {
       method: "POST",
       headers: COMMON_HEADERS,
       body: JSON.stringify({ action:"delete", booking_id:id })
     });
-    const text = await res.text();
-    let json;
+    var text = await res.text();
+    var json;
     try { json = JSON.parse(text); } catch(e) { json={error:text}; }
 
     if (!res.ok) return setStatusMessage("Fel: "+json.error,true);
@@ -164,23 +165,23 @@ async function deleteBooking(id) {
 }
 
 async function editBooking(id) {
-  const name = prompt("Nytt namn (tom = behåll):");
-  const covers = prompt("Antal covers (tom = behåll):");
-  const notes = prompt("Notering (tom = behåll):");
+  var name = prompt("Nytt namn (tom = behåll):");
+  var covers = prompt("Antal covers (tom = behåll):");
+  var notes = prompt("Notering (tom = behåll):");
 
-  const payload:any = { action:"update", booking_id:id };
+  var payload = { action:"update", booking_id:id };
   if (name) payload.guest_name = name;
   if (covers) payload.covers = Number(covers);
   if (notes) payload.notes = notes;
 
   try {
-    const res = await fetch(API_URL, {
+    var res = await fetch(API_URL, {
       method: "POST",
       headers: COMMON_HEADERS,
       body: JSON.stringify(payload)
     });
-    const text = await res.text();
-    let json;
+    var text = await res.text();
+    var json;
     try { json = JSON.parse(text); } catch(e) { json={error:text}; }
 
     if (!res.ok) return setStatusMessage("Fel: "+json.error,true);
@@ -192,7 +193,6 @@ async function editBooking(id) {
 
 document.addEventListener("DOMContentLoaded", loadBookings);
 </script>
-
 
 
 

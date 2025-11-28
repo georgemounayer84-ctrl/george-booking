@@ -17,20 +17,43 @@ const CORS_HEADERS = {
   "content-type": "application/json",
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "content-type,authorization",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS"
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS,PUT,PATCH,DELETE"
 };
 
+async function parseBody(req: Request, url: URL) {
+  // försök läsa och parse JSON först
+  try {
+    const text = await req.text();
+    if (!text) return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      // om inte JSON — försök parse som urlencoded key=value pairs
+      try {
+        const params = new URLSearchParams(text);
+        const obj: Record<string, any> = {};
+        for (const [k, v] of params.entries()) obj[k] = v;
+        return obj;
+      } catch {
+        return {};
+      }
+    }
+  } catch {
+    return {};
+  }
+}
+
 serve(async (req) => {
+  // Hantera preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
 
   const url = new URL(req.url);
-  const pathname = url.pathname.replace(/\/+$/,''); // normalize
-  const action = url.searchParams.get('action') || null;
-
+  // stöd både "/" och "/bookings" så det fungerar lokalt/remote
+  const pathname = url.pathname.replace(/\/+$/,''); // ta bort trailing slash
   try {
-    // GET /bookings
+    // GET / eller GET /bookings?restaurant_id=...
     if (req.method === "GET" && (pathname === "" || pathname === "/bookings" || pathname === "/")) {
       const restaurant_id = url.searchParams.get("restaurant_id");
       let q = supabase.from('bookings').select('*').order('reserved_at', { ascending: true });
@@ -40,29 +63,59 @@ serve(async (req) => {
       return new Response(JSON.stringify({ data }), { status: 200, headers: CORS_HEADERS });
     }
 
-    // POST with actions (cancel/delete) or create
+    // POST / eller POST /bookings
     if (req.method === "POST" && (pathname === "" || pathname === "/bookings" || pathname === "/")) {
-      const payload = await req.json();
+      // robust parsing av body / query / headers för att hitta action + booking_id
+      const bodyPayload = await parseBody(req, url);
 
-      // --- ADMIN ACTIONS ---
-      if (action === "cancel") {
-        const id = payload.id;
-        if (!id) return new Response(JSON.stringify({ error: "id krävs" }), { status: 400, headers: CORS_HEADERS });
-        const { data, error } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id).select();
-        if (error) return new Response(JSON.stringify({ error: error.message || error }), { status: 400, headers: CORS_HEADERS });
-        return new Response(JSON.stringify({ booking: data[0] }), { status: 200, headers: CORS_HEADERS });
+      // hämta action + booking_id från flera möjliga källor
+      const action = (bodyPayload && bodyPayload.action)
+        || url.searchParams.get("action")
+        || req.headers.get("x-action")
+        || null;
+
+      const booking_id = (bodyPayload && (bodyPayload.booking_id || bodyPayload.id))
+        || url.searchParams.get("booking_id")
+        || req.headers.get("x-booking-id")
+        || null;
+
+      // Om action finns — kör admin-actions
+      if (action) {
+        // säkerställ att booking_id finns
+        if (!booking_id) {
+          return new Response(JSON.stringify({ error: "booking_id krävs för action" }), { status: 400, headers: CORS_HEADERS });
+        }
+
+        if (action === "cancel") {
+          const { data, error } = await supabase
+            .from('bookings')
+            .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+            .eq('id', booking_id)
+            .select();
+          if (error) return new Response(JSON.stringify({ error: error.message || error }), { status: 500, headers: CORS_HEADERS });
+          if (!data || data.length === 0) return new Response(JSON.stringify({ error: "Booking ej hittad" }), { status: 404, headers: CORS_HEADERS });
+          return new Response(JSON.stringify({ booking: data[0] }), { status: 200, headers: CORS_HEADERS });
+        }
+
+        if (action === "delete") {
+          const { data, error } = await supabase
+            .from('bookings')
+            .delete()
+            .eq('id', booking_id)
+            .select();
+          if (error) return new Response(JSON.stringify({ error: error.message || error }), { status: 500, headers: CORS_HEADERS });
+          if (!data || data.length === 0) return new Response(JSON.stringify({ error: "Booking ej hittad" }), { status: 404, headers: CORS_HEADERS });
+          return new Response(JSON.stringify({ deleted: data[0] }), { status: 200, headers: CORS_HEADERS });
+        }
+
+        return new Response(JSON.stringify({ error: "Okänd action" }), { status: 400, headers: CORS_HEADERS });
       }
 
-      if (action === "delete") {
-        const id = payload.id;
-        if (!id) return new Response(JSON.stringify({ error: "id krävs" }), { status: 400, headers: CORS_HEADERS });
-        const { error } = await supabase.from('bookings').delete().eq('id', id);
-        if (error) return new Response(JSON.stringify({ error: error.message || error }), { status: 400, headers: CORS_HEADERS });
-        return new Response(null, { status: 204, headers: CORS_HEADERS });
-      }
+      // --- normalt: skapa bokning (widget) ---
+      // Om ingen action — behandla som create
+      const payload = bodyPayload || {};
 
-      // --- CREATE BOOKING (widget / UI) ---
-      // Map common widget fields to DB schema
+      // Mappa vanliga widget-fält till vår databas-schema
       const restaurant_id = payload.restaurant_id || payload.restaurant || null;
       const guest_name = payload.guest_name || payload.name || null;
       const guest_email = payload.guest_email || payload.email || null;

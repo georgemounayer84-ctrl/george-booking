@@ -17,7 +17,7 @@ const CORS_HEADERS = {
   "content-type": "application/json",
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "content-type,authorization",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS"
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS,PUT,PATCH,DELETE"
 };
 
 serve(async (req) => {
@@ -41,9 +41,47 @@ serve(async (req) => {
     }
 
     // POST / eller POST /bookings
+    // Används både för att skapa bokning (default) och för admin-actions:
+    // payload.action === 'cancel' eller 'delete' med booking_id krävs.
     if (req.method === "POST" && (pathname === "" || pathname === "/bookings" || pathname === "/")) {
       const payload = await req.json();
 
+      // Admin-actions
+      if (payload && payload.action) {
+        const action = String(payload.action);
+        const booking_id = payload.booking_id || payload.id || null;
+        if (!booking_id) {
+          return new Response(JSON.stringify({ error: "booking_id krävs för action" }), { status: 400, headers: CORS_HEADERS });
+        }
+
+        if (action === "cancel") {
+          // Markera bokning som avbokad
+          const { data, error } = await supabase
+            .from('bookings')
+            .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+            .eq('id', booking_id)
+            .select();
+          if (error) return new Response(JSON.stringify({ error: error.message || error }), { status: 500, headers: CORS_HEADERS });
+          if (!data || data.length === 0) return new Response(JSON.stringify({ error: "Booking ej hittad" }), { status: 404, headers: CORS_HEADERS });
+          return new Response(JSON.stringify({ booking: data[0] }), { status: 200, headers: CORS_HEADERS });
+        }
+
+        if (action === "delete") {
+          // Radera bokning (hard delete)
+          const { data, error } = await supabase
+            .from('bookings')
+            .delete()
+            .eq('id', booking_id)
+            .select();
+          if (error) return new Response(JSON.stringify({ error: error.message || error }), { status: 500, headers: CORS_HEADERS });
+          if (!data || data.length === 0) return new Response(JSON.stringify({ error: "Booking ej hittad" }), { status: 404, headers: CORS_HEADERS });
+          return new Response(JSON.stringify({ deleted: data[0] }), { status: 200, headers: CORS_HEADERS });
+        }
+
+        return new Response(JSON.stringify({ error: "Okänd action" }), { status: 400, headers: CORS_HEADERS });
+      }
+
+      // --- normalt: skapa bokning (widget) ---
       // Mappa vanliga widget-fält till vår databas-schema
       // widget skickar t.ex. party_size, requested_start
       const restaurant_id = payload.restaurant_id || payload.restaurant || null;

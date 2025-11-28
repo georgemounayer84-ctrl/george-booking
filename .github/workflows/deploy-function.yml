@@ -6,6 +6,10 @@ on:
 jobs:
   deploy-function:
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -13,10 +17,9 @@ jobs:
       - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
-          node-version: '20'   # use Node 20 (required by supabase CLI)
+          node-version: '20'
 
       - name: Install supabase CLI locally
-        working-directory: . 
         run: |
           npm ci --silent || true
           npm install --no-audit --no-fund supabase@latest
@@ -24,16 +27,15 @@ jobs:
       - name: Derive project ref
         id: ref
         run: |
-          echo "SUPABASE_URL=$SUPABASE_URL"
+          # SUPABASE_URL is provided from env via job.env
+          echo "Using SUPABASE_URL: $SUPABASE_URL"
           PROJECT_REF=$(echo "$SUPABASE_URL" | sed -E 's#https?://([^.]*)\..*#\1#')
           echo "project_ref=$PROJECT_REF" >> $GITHUB_OUTPUT
 
+      - name: Show supabase version
+        run: npx supabase --version
+
       - name: Deploy bookings function
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           echo "Project ref: ${{ steps.ref.outputs.project_ref }}"
-          npx supabase --version
-          npx supabase functions deploy bookings --project-ref "${{ steps.ref.outputs.project_ref }}" --no-validate
+          npx supabase functions deploy bookings --project-ref "${{ steps.ref.outputs.project_ref }}"

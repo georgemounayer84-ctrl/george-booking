@@ -118,7 +118,7 @@ function renderBookings(bookings) {
         <td>${escapeHtml(b.status || "")}</td>
         <td>         
           <button onclick="cancelBooking('${b.id}')" ${b.status === 'cancelled' ? 'disabled' : ''}>Cancel</button>
-          <button onclick="editBooking('${b.id}')">Ändra</button>
+          <button onclick="deleteBooking('${b.id}')">DELETE</button>
         </td>
       `;
       list.appendChild(tr);

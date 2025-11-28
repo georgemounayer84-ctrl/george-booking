@@ -50,8 +50,18 @@
   </table>
 
 <script>
+/* --- Konfiguration --- */
 const API_URL = "https://jnxmxhnzxfwgiwxziwbp.supabase.co/functions/v1/bookings";
+// Publik ANON key (endast ANON, aldrig service-role i frontend)
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpueG14aG56eGZ3Z2l3eHppd2JwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQyNTE2MjEsImV4cCI6MjA3OTgyNzYyMX0.KLbT6y41ulkGQgJiKlfuxdJNxrUif6TTymPR9WUCvJ4";
 
+const COMMON_HEADERS = {
+  "Content-Type": "application/json",
+  "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+  "apikey": SUPABASE_ANON_KEY
+};
+
+/* --- Hjälpfunktioner --- */
 function setStatusMessage(msg, isError=false) {
   const el = document.getElementById("status-msg");
   if (!el) return;
@@ -59,6 +69,16 @@ function setStatusMessage(msg, isError=false) {
   el.style.color = isError ? "crimson" : "green";
 }
 
+function escapeHtml(s) {
+  if (!s) return "";
+  return String(s)
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;");
+}
+
+/* --- Hämta bokningar --- */
 async function loadBookings() {
   setStatusMessage("Laddar...");
   const restaurantId = document.getElementById("restaurant_id").value.trim();
@@ -67,34 +87,40 @@ async function loadBookings() {
 
   const url = restaurantId ? `${API_URL}?restaurant_id=${encodeURIComponent(restaurantId)}` : API_URL;
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: COMMON_HEADERS });
+    const text = await res.text();
+    let json;
+    try { json = JSON.parse(text); } catch(e) { json = { error: text }; }
+
+    console.log("loadBookings - status", res.status, json);
     if (!res.ok) {
-      const err = await res.json().catch(()=>({error: "okänt fel"}));
-      setStatusMessage("Fel: " + (err.error || JSON.stringify(err)), true);
+      setStatusMessage("Fel: " + (json.error || text || "okänt fel"), true);
       return;
     }
-    const json = await res.json();
     const bookings = json.data || [];
     renderBookings(bookings);
     setStatusMessage(`Visar ${bookings.length} bokning(ar).`);
   } catch (e) {
+    console.error("loadBookings - nätverksfel", e);
     setStatusMessage("Nätverksfel: " + String(e), true);
   } finally {
     if (loadBtn) loadBtn.disabled = false;
   }
 }
 
+/* --- Rendera bokningar (stöd för <tbody id="booking-list"> eller fallback div) --- */
 function renderBookings(bookings) {
   const list = document.getElementById("booking-list");
-  // Om elementet saknas — skapa ett under tabellen eller i body
+
+  // Om element saknas: skapa fallback container
   if (!list) {
     const container = document.createElement("div");
     container.id = "booking-list";
     document.body.appendChild(container);
-    return renderBookings(bookings); // kalla om med nytt element
+    return renderBookings(bookings);
   }
 
-  // Om booking-list är en <tbody>, rendera som tabellrader
+  // If tbody -> table rows
   if (list.tagName.toLowerCase() === "tbody") {
     list.innerHTML = "";
     if (!bookings || bookings.length === 0) {
@@ -109,16 +135,16 @@ function renderBookings(bookings) {
     bookings.forEach(b => {
       const tr = document.createElement("tr");
       const reserved = b.reserved_at ? new Date(b.reserved_at).toLocaleString() : "—";
-
       tr.innerHTML = `
-        <td><strong>${escapeHtml(b.guest_name || "Namn saknas")}</strong><br><small>${escapeHtml(b.notes||"")}</small></td>
-        <td>${escapeHtml(b.guest_email||"")}${b.guest_phone ? "<br>"+escapeHtml(b.guest_phone) : ""}</td>
-        <td>${escapeHtml(String(b.covers || ""))}</td>
-        <td>${reserved}</td>
-        <td>${escapeHtml(b.status || "")}</td>
-        <td>         
+        <td style="vertical-align:top"><strong>${escapeHtml(b.guest_name || "Namn saknas")}</strong><br><small>${escapeHtml(b.notes || "")}</small></td>
+        <td style="vertical-align:top">${escapeHtml(b.guest_email || "")}${b.guest_phone ? "<br>"+escapeHtml(b.guest_phone) : ""}</td>
+        <td style="vertical-align:top">${escapeHtml(String(b.covers || ""))}</td>
+        <td style="vertical-align:top">${reserved}</td>
+        <td style="vertical-align:top">${escapeHtml(b.status || "")}</td>
+        <td style="vertical-align:top">
           <button onclick="cancelBooking('${b.id}')" ${b.status === 'cancelled' ? 'disabled' : ''}>Cancel</button>
-          <button onclick="editBooking('${b.id}')">EDIT</button>
+          <button onclick="editBooking('${b.id}')">Ändra</button>
+          <button onclick="deleteBooking('${b.id}')">Delete</button>
         </td>
       `;
       list.appendChild(tr);
@@ -126,7 +152,7 @@ function renderBookings(bookings) {
     return;
   }
 
-  // Annars: rendera som vanliga divs (fallback)
+  // Fallback: div-rendering
   list.innerHTML = "";
   if (!bookings || bookings.length === 0) {
     list.innerHTML = "<p>Inga bokningar hittades.</p>";
@@ -137,29 +163,28 @@ function renderBookings(bookings) {
     const reserved = b.reserved_at ? new Date(b.reserved_at).toLocaleString() : "—";
     div.className = "booking-item";
     div.innerHTML = `
-      <strong>${escapeHtml(b.guest_name || "Namn saknas")}</strong><br>
-      <small>${escapeHtml(b.guest_email||"")} ${b.guest_phone ? "· "+escapeHtml(b.guest_phone) : ""}</small><br>
-      ${reserved}<br>
-      Status: <b>${b.status || "—"}</b><br>
-      <button onclick="cancelBooking('${b.id}')" ${b.status === 'cancelled' ? 'disabled' : ''}>Cancel</button>
-      <button onclick="deleteBooking('${b.id}')">Delete</button>
+      <div style="display:flex;gap:16px;align-items:flex-start;">
+        <div style="flex:1">
+          <strong>${escapeHtml(b.guest_name || "Namn saknas")}</strong><br>
+          <small>${escapeHtml(b.guest_email || "")} ${b.guest_phone ? "· "+escapeHtml(b.guest_phone) : ""}</small><br>
+          ${reserved}<br>
+          Status: <b>${b.status || "—"}</b>
+        </div>
+        <div style="min-width:160px">
+          <button onclick="cancelBooking('${b.id}')" ${b.status === 'cancelled' ? 'disabled' : ''}>Cancel</button>
+          <button onclick="editBooking('${b.id}')">Ändra</button>
+          <button onclick="deleteBooking('${b.id}')">Delete</button>
+        </div>
+      </div>
       <hr>
     `;
     list.appendChild(div);
   });
 }
 
-function escapeHtml(s) {
-  if (!s) return "";
-  return String(s)
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;");
-}
+/* --- Admin actions --- */
 
-
-// Cancel (debug + UI)
+// Cancel
 async function cancelBooking(id) {
   if (!confirm("Bekräfta: markera bokning som avbokad?")) return;
   setStatusMessage("Avbokar...");
@@ -168,10 +193,9 @@ async function cancelBooking(id) {
   try {
     const res = await fetch(API_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: COMMON_HEADERS,
       body: JSON.stringify({ action: "cancel", booking_id: id })
     });
-
     const text = await res.text();
     let parsed;
     try { parsed = JSON.parse(text); } catch(e) { parsed = text; }
@@ -189,10 +213,8 @@ async function cancelBooking(id) {
   }
 }
 
-// EDIT / UPDATE
+// Edit / Update (prompt-baserad enkel editor)
 async function editBooking(id) {
-  // hämta aktuell bokning (från API eller från redan inläst lista)
-  // enklast: fråga användaren med prompt för fält vi tillåter: name, covers, reserved_at, notes
   const newName = prompt("Nytt namn (lämna tomt för att behålla):");
   const newCovers = prompt("Nytt antal covers (lämna tomt för att behålla):");
   const newReserved = prompt("Ny tid (ISO eller YYYY-MM-DD HH:MM) (lämna tomt för att behålla):");
@@ -202,7 +224,6 @@ async function editBooking(id) {
   if (newName && newName.trim()) payload.guest_name = newName.trim();
   if (newCovers && !isNaN(Number(newCovers))) payload.covers = Number(newCovers);
   if (newReserved && newReserved.trim()) {
-    // försök normalisera tid (om användaren anger utan T)
     let iso = newReserved.trim();
     if (!iso.includes("T") && iso.includes(" ")) iso = iso.replace(" ", "T");
     payload.reserved_at = iso;
@@ -220,7 +241,7 @@ async function editBooking(id) {
   try {
     const res = await fetch(API_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: COMMON_HEADERS,
       body: JSON.stringify(payload)
     });
 
@@ -240,15 +261,42 @@ async function editBooking(id) {
     setStatusMessage("Nätverksfel: " + String(e), true);
   }
 }
-  
-  
 
+// Delete (hard delete)
+async function deleteBooking(id) {
+  if (!confirm("Bekräfta: radera bokningen permanent?")) return;
+  setStatusMessage("Raderar...");
+  console.log("Delete - payload:", { action: "delete", booking_id: id });
+
+  try {
+    const res = await fetch(API_URL, {
+      method: "POST",
+      headers: COMMON_HEADERS,
+      body: JSON.stringify({ action: "delete", booking_id: id })
+    });
+    const text = await res.text();
+    let parsed;
+    try { parsed = JSON.parse(text); } catch(e) { parsed = text; }
+    console.log("Delete - response status:", res.status, "body:", parsed);
+
+    if (!res.ok) {
+      setStatusMessage("Fel: " + (parsed.error || text || "okänt fel"), true);
+      return;
+    }
+    setStatusMessage("Raderad.");
+    await loadBookings();
+  } catch (e) {
+    console.error("Delete - nätverksfel", e);
+    setStatusMessage("Nätverksfel: " + String(e), true);
+  }
+}
+
+/* --- Init --- */
 document.addEventListener("DOMContentLoaded", () => {
   if (!document.getElementById("status-msg")) {
     const el = document.createElement("div");
     el.id = "status-msg";
     el.style.margin = "8px 0";
-    // placera innan tabellen om möjligt
     const table = document.querySelector("table");
     if (table && table.parentNode) table.parentNode.insertBefore(el, table);
     else document.body.insertBefore(el, document.body.firstChild);
@@ -256,6 +304,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadBookings();
 });
 </script>
+
 
 
 

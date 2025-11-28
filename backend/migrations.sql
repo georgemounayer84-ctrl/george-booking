@@ -1,72 +1,72 @@
--- DB migrations for george-booking MVP
-CREATE TABLE IF NOT EXISTS organizations (
-  id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, orgnr VARCHAR(50), created_at TIMESTAMPTZ DEFAULT now()
+-- migrations.sql (ersätt befintlig)
+create extension if not exists "uuid-ossp";
+
+create table if not exists restaurants (
+  id uuid primary key default uuid_generate_v4(),
+  name text not null,
+  org_number text,
+  timezone text default 'Europe/Stockholm',
+  created_at timestamptz default now()
 );
 
-CREATE TABLE IF NOT EXISTS groups (
-  id BIGSERIAL PRIMARY KEY, organization_id BIGINT REFERENCES organizations(id), name TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now()
+create table if not exists roles (
+  id serial primary key,
+  name text unique not null
 );
 
-CREATE TABLE IF NOT EXISTS restaurants (
-  id BIGSERIAL PRIMARY KEY,
-  group_id BIGINT REFERENCES groups(id),
-  name TEXT NOT NULL,
-  timezone TEXT NOT NULL DEFAULT 'Europe/Stockholm',
-  currency CHAR(3) NOT NULL DEFAULT 'SEK',
-  default_session_length INT NOT NULL DEFAULT 150,
-  default_clearing_buffer INT NOT NULL DEFAULT 30,
-  slot_interval_minutes INT NOT NULL DEFAULT 15,
-  max_capacity INT NOT NULL DEFAULT 50,
-  booking_window_days INT NOT NULL DEFAULT 90,
-  created_at TIMESTAMPTZ DEFAULT now()
+create table if not exists user_profiles (
+  id uuid primary key, -- use auth.uid()
+  email text,
+  full_name text,
+  created_at timestamptz default now()
 );
 
-CREATE TABLE IF NOT EXISTS users (
-  id BIGSERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL, display_name TEXT, password_hash TEXT NOT NULL, phone TEXT, is_active BOOLEAN DEFAULT true, created_at TIMESTAMPTZ DEFAULT now()
+create table if not exists user_roles (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid not null references user_profiles(id) on delete cascade,
+  role_id int not null references roles(id),
+  restaurant_id uuid not null references restaurants(id) on delete cascade,
+  created_at timestamptz default now()
 );
 
-CREATE TABLE IF NOT EXISTS roles (id SMALLINT PRIMARY KEY, name TEXT UNIQUE NOT NULL);
-INSERT INTO roles (id,name) VALUES (1,'superadmin'),(2,'organization_admin'),(3,'group_manager'),(4,'restaurant_manager'),(5,'host') ON CONFLICT DO NOTHING;
-
-CREATE TABLE IF NOT EXISTS user_permissions (
-  id BIGSERIAL PRIMARY KEY, user_id BIGINT REFERENCES users(id), role_id SMALLINT REFERENCES roles(id),
-  scope_type TEXT NOT NULL, scope_id BIGINT NOT NULL, created_at TIMESTAMPTZ DEFAULT now()
+create table if not exists restaurant_tables (
+  id uuid primary key default uuid_generate_v4(),
+  restaurant_id uuid not null references restaurants(id) on delete cascade,
+  name text,
+  seats int not null default 2
 );
 
-CREATE TABLE IF NOT EXISTS sittings (
-  id BIGSERIAL PRIMARY KEY,
-  restaurant_id BIGINT REFERENCES restaurants(id),
-  day_of_week SMALLINT,
-  date_set DATE,
-  start_time TIME NOT NULL,
-  max_duration_minutes INT NOT NULL,
-  clearing_buffer_minutes INT,
-  enabled BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT now()
+create table if not exists sittings (
+  id uuid primary key default uuid_generate_v4(),
+  restaurant_id uuid not null references restaurants(id) on delete cascade,
+  name text,
+  start_ts timestamptz not null,
+  end_ts timestamptz not null,
+  created_at timestamptz default now()
 );
 
-CREATE TABLE IF NOT EXISTS bookings (
-  id BIGSERIAL PRIMARY KEY,
-  restaurant_id BIGINT REFERENCES restaurants(id),
-  guest_name TEXT NOT NULL,
-  guest_email TEXT,
-  guest_phone TEXT,
-  party_size INT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'confirmed',
-  source TEXT NOT NULL DEFAULT 'widget',
-  requested_start TIMESTAMPTZ NOT NULL,
-  requested_end TIMESTAMPTZ NOT NULL,
-  checked_in BOOLEAN DEFAULT false,
-  created_by_user_id BIGINT,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
+create table if not exists bookings (
+  id uuid primary key default uuid_generate_v4(),
+  restaurant_id uuid not null references restaurants(id) on delete cascade,
+  sitting_id uuid references sittings(id),
+  created_by uuid references user_profiles(id),
+  guest_name text,
+  guest_email text,
+  guest_phone text,
+  covers int not null,
+  status text not null default 'booked',
+  reserved_at timestamptz not null default now(),
+  ended_at timestamptz,
+  created_at timestamptz default now(),
+  notes text
 );
 
-CREATE TABLE IF NOT EXISTS booking_audit (
-  id BIGSERIAL PRIMARY KEY,
-  booking_id BIGINT REFERENCES bookings(id),
-  action TEXT NOT NULL,
-  actor TEXT,
-  payload JSONB,
-  created_at TIMESTAMPTZ DEFAULT now()
+create table if not exists booking_guests (
+  id uuid primary key default uuid_generate_v4(),
+  booking_id uuid not null references bookings(id) on delete cascade,
+  name text,
+  email text,
+  phone text
 );
+
+create index if not exists idx_bookings_restaurant_reserved on bookings (restaurant_id, reserved_at);

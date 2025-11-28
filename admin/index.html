@@ -26,89 +26,60 @@
     <tbody></tbody>
   </table>
 
-  <script>
-    const API_BASE = "https://jnxmxhnzxfwgiwxziwbp.functions.supabase.co";
-    const refreshBtn = document.getElementById('refresh');
-    const tblBody = document.querySelector('#tbl tbody');
-    const msg = document.getElementById('msg');
+ <script>
+const API_URL = "https://jnxmxhnzxfwgiwxziwbp.supabase.co/functions/v1/bookings";
 
-    async function load() {
-      const rid = document.getElementById('restaurant').value.trim();
-      if(!rid){ alert('Sätt restaurant-id'); return; }
-      msg.innerText = 'Laddar...';
-      try{
-        const res = await fetch(`${API_BASE}/bookings?restaurant_id=${rid}`);
-        const j = await res.json();
-        const bookings = j.data || [];
-        tblBody.innerHTML = '';
-        if(bookings.length===0){
-          tblBody.innerHTML = '<tr><td colspan="6">Inga bokningar</td></tr>';
-        } else {
-          bookings.forEach(b => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-              <td style="min-width:220px">${b.id}<br/><span class="muted">${b.sitting_id || ''}</span></td>
-              <td>${b.guest_name}<br/><span class="muted">${b.guest_email||''} ${b.guest_phone||''}</span></td>
-              <td>${b.covers}</td>
-              <td>${b.reserved_at}</td>
-              <td>${b.status}</td>
-              <td>
-                <button data-id="${b.id}" class="cancel">Markera avbokad</button>
-                <button data-id="${b.id}" class="delete">Radera</button>
-              </td>`;
-            tblBody.appendChild(tr);
-          });
-        }
-        msg.innerText = '';
-      }catch(e){
-        msg.innerText = 'Fel vid hämtning: '+e.message;
-      }
-    }
+// Hämta bokningar vid sidladdning
+async function loadBookings() {
+  const res = await fetch(API_URL);
+  const json = await res.json();
+  const bookings = json.data || [];
+  
+  const list = document.getElementById("booking-list");
+  list.innerHTML = "";
 
-    // actions: send to Edge Function (handled later)
-    async function postAction(path, body){
-      const res = await fetch(`${API_BASE}${path}`, {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(body)
-      });
-      return res;
-    }
+  bookings.forEach(b => {
+    const div = document.createElement("div");
+    div.className = "booking-item";
+    div.innerHTML = `
+      <strong>${b.guest_name}</strong>  
+      (${b.covers} pers)  
+      <br>
+      ${new Date(b.reserved_at).toLocaleString()}
+      <br>
+      Status: <b>${b.status}</b>
+      <br>
+      <button onclick="cancelBooking('${b.id}')">Cancel</button>
+      <button onclick="deleteBooking('${b.id}')">Delete</button>
+      <hr>
+    `;
 
-    // event handlers
-    refreshBtn.onclick = load;
+    list.appendChild(div);
+  });
+}
 
-    tblBody.addEventListener('click', async (ev) => {
-      const btn = ev.target.closest('button');
-      if(!btn) return;
-      const id = btn.dataset.id;
-      if(btn.classList.contains('cancel')){
-        if(!confirm('Markera bokningen som avbokad?')) return;
-        // Vi använder en action som vi implementerar senare i Edge Function: /bookings?action=cancel
-        const resp = await postAction('/bookings?action=cancel', { id });
-        if(resp.status === 200 || resp.status === 204){
-          alert('Markerad som avbokad.');
-          load();
-        } else {
-          const j = await resp.json().catch(()=>({error:'okänt'}));
-          alert('Fel: '+(j.error||JSON.stringify(j)));
-        }
-      } else if(btn.classList.contains('delete')){
-        if(!confirm('Radera bokningen permanent?')) return;
-        // action delete (implementeras senare): /bookings?action=delete
-        const resp = await postAction('/bookings?action=delete', { id });
-        if(resp.status === 200 || resp.status === 204){
-          alert('Raderad.');
-          load();
-        } else {
-          const j = await resp.json().catch(()=>({error:'okänt'}));
-          alert('Fel: '+(j.error||JSON.stringify(j)));
-        }
-      }
-    });
+// Admin: Cancel
+async function cancelBooking(id) {
+  await fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "cancel", booking_id: id })
+  });
+  loadBookings();
+}
 
-    // auto-load on open
-    window.addEventListener('DOMContentLoaded', load);
-  </script>
+// Admin: Delete
+async function deleteBooking(id) {
+  await fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "delete", booking_id: id })
+  });
+  loadBookings();
+}
+
+loadBookings();
+</script>
+
 </body>
 </html>
